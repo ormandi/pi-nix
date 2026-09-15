@@ -6,6 +6,7 @@
 , fetchurl
 , autoPatchelfHook
 , makeBinaryWrapper
+, libgcc
 , ripgrep
 , fd
 }:
@@ -52,6 +53,13 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
   nativeBuildInputs = [ makeBinaryWrapper ]
     ++ lib.optional stdenvNoCC.hostPlatform.isLinux autoPatchelfHook;
+
+  # The bundled clipboard addon needs libgcc_s.so.1, which autoPatchelfHook
+  # only finds if it is on the buildInputs search path. This is a plain
+  # runtime library, so taking it from libgcc keeps stdenvNoCC (which has no
+  # cc of its own) intact.
+  buildInputs = lib.optional stdenvNoCC.hostPlatform.isLinux
+    (lib.getLib libgcc);
 
   installPhase = ''
     runHook preInstall
