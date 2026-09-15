@@ -1,0 +1,72 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.system }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { system: x86_64-linux, runner: ubuntu-24.04 }
+          - { system: aarch64-linux, runner: ubuntu-24.04-arm }
+          - { system: aarch64-darwin, runner: macos-15 }
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: nixbuild/nix-quick-install-action@v35
+        with:
+          nix_conf: experimental-features = nix-command flakes
+
+      # Adds the cache as a substituter and pushes any paths this job builds.
+      # Skipped on forks, where the token secret is not available.
+      - uses: cachix/cachix-action@v16
+        if: ${{ !github.event.pull_request.head.repo.fork }}
+        with:
+          name: ormandi-pi
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      # Catches a runner label silently changing architecture underneath us.
+      - name: Runner arch matches matrix
+        run: |
+          actual="$(nix eval --impure --raw --expr builtins.currentSystem)"
+          echo "runner is $actual, matrix says ${{ matrix.system }}"
+          test "$actual" = "${{ matrix.system }}"
+
+      - name: Build
+        run: nix build --print-build-logs '.#pi'
+
+      # Asserts the binary's own version matches the packaged one, which a
+      # stale hash or a wrong-arch tarball would break.
+      - name: Smoke test
+        run: |
+          test -x ./result/bin/pi
+          got="$(./result/bin/pi --version | tr -d '[:space:]')"
+          want="$(nix eval --raw '.#pi.version')"
+          echo "pi reports '$got', flake declares '$want'"
+          test "$got" = "$want"
+
+      - name: Closure
+        run: nix path-info -rSh ./result
+
+  # Evaluation is platform-independent, so one cheap runner can check every
+  # system. Plain `nix flake check` only checks the current one.
+  eval-all-systems:
+    name: eval (all systems)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: nixbuild/nix-quick-install-action@v35
+        with:
+          nix_conf: experimental-features = nix-command flakes
+      - run: nix flake check --all-systems --no-build
