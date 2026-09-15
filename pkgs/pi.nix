@@ -61,6 +61,12 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   buildInputs = lib.optional stdenvNoCC.hostPlatform.isLinux
     (lib.getLib libgcc);
 
+  # Bun stores the program's JavaScript inside the executable and locates it by
+  # offset, so `strip` rewriting the ELF loses it. The binary still starts, but
+  # reports Bun's own version instead of pi's -- which is what the smoke test
+  # catches. The section survives the strip; the offset does not.
+  dontStrip = true;
+
   installPhase = ''
     runHook preInstall
 
